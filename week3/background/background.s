@@ -158,9 +158,17 @@ clear_palette:
 	lda	#%01000000	; PPUMask, the first 3 bits (RGB) set color emphasis for what Blank (no color) is 
 	sta	$2001				; $2001 is the PPUMask CPU RAM Address
 
-forever:
+; After the code above has ran (starting from the reset block) this program is now done so just loop
+; forever so that we don't execute the stuff below this, like the data section or the NMI handler, etc.
+forever:					
 	jmp	forever
 
+; This is where you write the block of code to handle the Non Maskable Interrupt, so when we
+; press a button on a controller for example, that triggers an interrupt in the program, and then
+; this nmi block will run and we will then trigger a subroutine to update character position data,
+; etc. 
+; Currently we aren't handling input so this is just blank and that RTI instruction is the
+; Return From Interrupt
 nmi:
 	rti
  
