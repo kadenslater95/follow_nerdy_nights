@@ -1,0 +1,196 @@
+ca65 V2.19 - Git 3dfe03300
+Main file   : background.s
+Current file: background.s
+
+000000r 1               ; Good to Know
+000000r 1               	; See https://cc65.github.io/doc/ca65.html for list of Directives
+000000r 1               	; See https://www.masswerk.at/6502/6502_instruction_set.html for list of Instructions
+000000r 1               	;
+000000r 1               	; $ inidicates we are writing a hex number
+000000r 1               	; % indiciates we are writing a binary number
+000000r 1               	; No prefix indicates we are writing a decimal number (never write decimal because it is disabled)
+000000r 1               	;
+000000r 1               	; When working with instructions:
+000000r 1               		; # indicates we are giving an immediate value, so #$00 is 0,
+000000r 1               		; and without # it is probably a Memory Address instead
+000000r 1               	;
+000000r 1               	; When working with Directives (such as .byte) the # is not used
+000000r 1               		; so it is still an immediate value (though that value can be referencing an address)
+000000r 1               	;
+000000r 1               	; Acronyms and Some Definitions:
+000000r 1               		; PPU is Picture Processing Unit, a processor separate from CPU that passes data to CRT or
+000000r 1               		; whatever display you are using.
+000000r 1               		; APU is Audio Processing Unit, another separate processor on the Motherboard, and it handles sound.
+000000r 1               		; Note: You write code that runs in the CPU, but through certain Memory Addresses you can
+000000r 1               		; control the PPU and APU and through other address ranges you can pass data to them.
+000000r 1               		;
+000000r 1               		; NMI is Non Maskable Interrupt https://en.wikipedia.org/wiki/Non-maskable_interrupt
+000000r 1               		;
+000000r 1               		; IRQ is Interrupt Request https://en.wikipedia.org/wiki/Interrupt_request
+000000r 1               		;
+000000r 1               		; CRT is Cathode Ray Tube, the TV that renders things in Scanlines (to the program it pretends
+000000r 1               		; that everything is done in scanlines regardless of display, I just say CRT for simplicity)
+000000r 1               		;
+000000r 1               		; BG is background
+000000r 1               		;
+000000r 1               		; FCEUX and Nestopia are programs that run your iNES (.nes extended) file after you Assemble
+000000r 1               		; and Link it.
+000000r 1               	;
+000000r 1               	; Unexpected / Sneaky things:
+000000r 1               		; You have to set the PPU Read/Write Address by consecutively writing to the byte at
+000000r 1               		; address $2006 twice.
+000000r 1               		; It's unexpected because you have to specify a 2 byte address by writing to 1 byte and then
+000000r 1               		; writing to it again, rather than writing to 2 separate bytes.
+000000r 1               		; The first write specifies the High byte of the address and the second write specifies
+000000r 1               		; the Low byte of the address.
+000000r 1               			; FIGURED OUT WHY: As I got further along I realized that PPU Memory is separate from the RAM
+000000r 1               			; and that the PPU accesses RAM that the CPU has access to in order to get instructions, and
+000000r 1               			; data. So when I want to access PPU Memory I have to do so via a combination of writes
+000000r 1               			; to control memory addresses and writes to data memory addresses.
+000000r 1               			; My flawed expectation was that I would write a whole block of bytes and then tell the PPU
+000000r 1               			; what the start and end of those bytes was, but that would take up space on the RAM to fill
+000000r 1               			; up all those bytes I want to write to the PPU, and RAM is already pretty limited, and if I
+000000r 1               			; were to read data from the PPU it would probably take up all the CPU RAM.
+000000r 1               			; Instead you write 1 byte at a time to a single byte, over and over.
+000000r 1               			; Now I can Write to the PPU Memory without taking up space in the CPU RAM.
+000000r 1               			; Also, the reason for writing to $2006 in CPU RAM is to set what address in PPU Memory
+000000r 1               			; you want to do the reading and writing from, so the $2006 byte and the $2007 byte are the
+000000r 1               			; only 2 bytes needed to Reader/Write all the data you could ever want From/To the PPU Memory.
+000000r 1               	;
+000000r 1               
+000000r 1               
+000000r 1               .segment "HEADER"
+000000r 1               										; See https://www.nesdev.org/wiki/INES for these INES bits and Magic Number
+000000r 1  4E 45 53 1A  	.byte	"NES", $1A	; iNES header identifier, ACII for NES followed by EOF character
+000004r 1  02           	.byte	2						; 2x 16KB PRG code
+000005r 1  01           	.byte	1						; 1x  8KB CHR data
+000006r 1  01           	.byte	$01					; Bit 0 is 1 so Horizontally Arrange Nametable with Vertical Mirroring
+000007r 1  00           	.byte $00					; Byte 7 (Flags 7) has more setup, all 0 for current usage
+000008r 1               
+000008r 1               ;;;;;;;;;;;;;;;
+000008r 1               
+000008r 1               ;;; "nes" linker config requires a STARTUP section, even if it's empty
+000008r 1               .segment "STARTUP"
+000000r 1               
+000000r 1               .segment "CODE"
+000000r 1               
+000000r 1               reset:				; Start of every NES Program, always has the following similar setup instructions
+000000r 1               							; See https://www.nesdev.org/wiki/Status_flags for status flag bits
+000000r 1  78           	sei					; disable IRQs via Status Register Flag
+000001r 1  D8           	cld					; disable Decimal values via Status Register flag
+000002r 1               
+000002r 1               							; See https://www.nesdev.org/wiki/APU for APU Control Bytes and Bits
+000002r 1  A2 40        	ldx	#$40		; 0100 0000 is the Inhibit IRQ bit
+000004r 1  8E 17 40     	stx	$4017		; $4017 is the byte for this APU Frame Counter settings
+000007r 1               
+000007r 1  A2 FF        	ldx	#$ff		; Set Stack Pointer to be the top of the 256 bytes addressable
+000009r 1  9A           	txs
+00000Ar 1               
+00000Ar 1               							; See https://www.nesdev.org/wiki/PPU_registers for PPU Control Bytes and Bits
+00000Ar 1  E8           	inx					; now X = 0 since $ff + $01 wraps around
+00000Br 1  8E 00 20     	stx	$2000		; disable NMI since bit 7 is currently 0 in X Register
+00000Er 1  8E 01 20     	stx	$2001		; disable Rendering since bits 1-4 are currently 0 in X Register
+000011r 1               
+000011r 1               							; While X Register is 0, set another APU Control Byte
+000011r 1  8E 10 40     	stx	$4010		; disable DMC IRQs since bit 7 is currently 0 in X Register
+000014r 1               
+000014r 1               	;; first wait for vblank to make sure PPU is ready
+000014r 1               vblankwait1:
+000014r 1  2C 02 20     	bit	$2002				; Set Negative and Overflow status flag Bits to be the corresponding bits
+000017r 1               									; of this Byte so we can loop to wait by branching with the next instruction.
+000017r 1  10 FB        	bpl	vblankwait1	; Branches if Negative status flag is 0, so loop until PPU changes
+000019r 1               									; that PPU VBlank Ready Status bit 7 via the Byte $2002
+000019r 1               
+000019r 1               ; Note that the CPU has dedicated bytes $0000 to $0800 to Internal RAM use, so this is what we
+000019r 1               ; are clearing out in this next block
+000019r 1               clear_memory:
+000019r 1  A9 00        	lda	#$00					; Overwriting to 0 will be used to clear the Bytes
+00001Br 1               
+00001Br 1               										; X at this point is still 0 on the first Branching Iteration since we
+00001Br 1               										; haven't modified it since the Reset Block
+00001Br 1  95 00        	sta	$0000, x
+00001Dr 1  9D 00 01     	sta	$0100, x
+000020r 1  9D 00 02     	sta	$0200, x
+000023r 1  9D 00 03     	sta	$0300, x			; Each of these is storing the A register which is currently 0 in a Byte at
+000026r 1  9D 00 04     	sta	$0400, x			; at the given address which is offset by X.
+000029r 1  9D 00 05     	sta	$0500, x			; Note that X will loop from 0 to 255 then the branch will end back at 0.
+00002Cr 1  9D 00 06     	sta	$0600, x			; Only need to offset by every 256 bytes or $0100 since we offset the X
+00002Fr 1  9D 00 07     	sta	$0700, x			; to write to all the bytes in between.
+000032r 1               
+000032r 1               										; The first Increment of X makes it 1 before checking Zero flag with BNE
+000032r 1  E8           	inx								; Keep incrementing the X register, eventually it will wrap back around to 0
+000033r 1               										; after the 256th increment
+000033r 1  D0 E4        	bne	clear_memory	; When INX wraps X back to 0 on the 256th iteration the Zero flag will be set
+000035r 1               										; and we will no longer loop
+000035r 1               
+000035r 1               	;; second wait for vblank, PPU is ready after this
+000035r 1               	; Later on the vblank wait block should be moved to a stored procedure because that would
+000035r 1               	; be useful since there are situations that we want to do this
+000035r 1               vblankwait2:
+000035r 1  2C 02 20     	bit	$2002
+000038r 1  10 FB        	bpl	vblankwait2
+00003Ar 1               
+00003Ar 1               ;; Need clear both palettes to $00. Needed for Nestopia. Not
+00003Ar 1               ;; needed for FCEU* as they're already $00 on powerup.
+00003Ar 1               clear_palette:
+00003Ar 1               	; The CPU Cannot directly access the Color Palette memory, this is accessed by the PPU.
+00003Ar 1               	; So I must through memory tell the PPU that I am going to write to the Color
+00003Ar 1               	; Palette addresses, then tell it what data to write.
+00003Ar 1               
+00003Ar 1               	; First reset the PPU Read/Write Address
+00003Ar 1  AD 02 20     	lda	$2002		; Read PPU status to reset PPU address
+00003Dr 1               
+00003Dr 1               	; Set PPU address to BG (background) palette RAM Address ($3F00)
+00003Dr 1               	; Note that you write the 2 Byte Address for the PPU to Read/Write from by writing
+00003Dr 1               	; the High Byte to $2006 and then immediately following that with a write of the Low
+00003Dr 1               	; Byte to $2006.
+00003Dr 1               	; So 1 byte gets used to set that 2 Byte address by writing to it twice, rather than using
+00003Dr 1               	; 2 separate bytes to specify that 2 Byte address.
+00003Dr 1  A9 3F        	lda	#$3f
+00003Fr 1  8D 06 20     	sta	$2006
+000042r 1  A9 00        	lda	#$00
+000044r 1  8D 06 20     	sta 	$2006
+000047r 1               
+000047r 1  A2 20        	ldx	#$20		; Loop $20 times (up to $3F20)
+000049r 1  A9 00        	lda	#$00		; Set each entry to $00
+00004Br 1               @loop:
+00004Br 1  8D 07 20     	sta	$2007		; $2007 is that 1 byte that I Write to over and over again to pass data to PPU
+00004Er 1               							; memory 1 byte at a time
+00004Er 1  CA           	dex
+00004Fr 1  D0 FA        	bne	@loop
+000051r 1               
+000051r 1  A9 40        	lda	#%01000000	; PPUMask, the first 3 bits (RGB) set color emphasis for what Blank (no color) is
+000053r 1  8D 01 20     	sta	$2001				; $2001 is the PPUMask CPU RAM Address
+000056r 1               
+000056r 1               ; After the code above has ran (starting from the reset block) this program is now done so just loop
+000056r 1               ; forever so that we don't execute the stuff below this, like the data section or the NMI handler, etc.
+000056r 1               forever:
+000056r 1  4C rr rr     	jmp	forever
+000059r 1               
+000059r 1               ; This is where you write the block of code to handle the Non Maskable Interrupt, so when we
+000059r 1               ; press a button on a controller for example, that triggers an interrupt in the program, and then
+000059r 1               ; this nmi block will run and we will then trigger a subroutine to update character position data,
+000059r 1               ; etc.
+000059r 1               ; Currently we aren't handling input so this is just blank and that RTI instruction is the
+000059r 1               ; Return From Interrupt
+000059r 1               nmi:
+000059r 1  40           	rti
+00005Ar 1               
+00005Ar 1               ;;;;;;;;;;;;;;
+00005Ar 1               
+00005Ar 1               .segment "VECTORS"
+000000r 1               
+000000r 1               	;; When an NMI happens (once per frame if enabled) the label nmi:
+000000r 1  rr rr        	.word	nmi
+000002r 1               	;; When the processor first turns on or is reset, it will jump to the
+000002r 1               	;; label reset:
+000002r 1  rr rr        	.word	reset
+000004r 1               	;; External interrupt IRQ is not used in this tutorial
+000004r 1  00 00        	.word	0
+000006r 1               
+000006r 1               ;;;;;;;;;;;;;;
+000006r 1               
+000006r 1               .segment "CHARS"
+000000r 1               
+000000r 1               ;;; No CHR-ROM needed for this app
+000000r 1               
