@@ -8,7 +8,7 @@
 
     
   .bank 0
-  .org $C000 
+  .org $8000 
 RESET:
   SEI          ; disable IRQs
   CLD          ; disable decimal mode
